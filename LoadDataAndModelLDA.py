@@ -149,23 +149,63 @@ for i in range(len(moviesCorpus)):
         docTermMatrix[i,j] = t[1];
 
 
+numUsers = 0 #To be returned.
+usersIndexMapping = {} #To be returned.
+
+
+#Count number of users.
+dataextract = pd.read_csv('ratings.csv')
+col1 = dataextract['userId']
+for i in range(len(dataextract)):
+    if col1[i] not in usersIndexMapping:
+        usersIndexMapping[col1[i]] = numUsers
+        numUsers += 1
+
+
+userTermMatrix = np.zeros((numUsers, numTopics)) #To be returned.
+
+
+userRatingFreq = {}
+
+
+#Load and get dataset.
+col2 = dataextract['movieId']
+col3 = dataextract['rating']
+for i in range(len(dataextract)):
+    if col3[i]<3:
+        continue
+    if col1[i] in userRatingFreq:
+        userRatingFreq[col1[i]] += 1
+    else:
+        userRatingFreq[col1[i]] = 1
+    j = usersIndexMapping[col1[i]]
+    k = moviesIndexMapping[col2[i]]
+    userTermMatrix[j] += (col3[i]-3)*docTermMatrix[k]
+for key, val in userRatingFreq.items():
+    j = usersIndexMapping[key]
+    userTermMatrix[j] /= val
+
+
 from scipy.stats import pearsonr as pearsons_correlation
 
 
 def run():
-    val = 0
-    indx = moviesIndexMapping[6]
-    uservec = 5*docTermMatrix[indx]
-    print(uservec)
-    for i in range(numMovies):
-        coeff, pval = pearsons_correlation(docTermMatrix[i], uservec)
-        if coeff==1:
-            print(str(moviesName[i])+" "+str(moviesId[i]))
-            val += 1
-    print(numMovies)
-    print(val)
-
-run()
+    #uid = int(input("Enter User Id: "))
+    for j in range(numUsers):
+        uid = j+1
+        if uid not in usersIndexMapping.keys():
+            continue;
+        i = usersIndexMapping[uid]
+        uservec = userTermMatrix[i]
+        print(uid)
+        print(uservec)
+        numRec = 0
+        for i in range(numMovies):
+            coeff, pval = pearsons_correlation(docTermMatrix[i], uservec)
+            if coeff>0.9:
+                print(str(moviesName[i])+" "+str(moviesId[i]))
+                numRec += 1
+        print(numRec)
 
 
 if __name__=="__main__":
