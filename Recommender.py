@@ -196,6 +196,9 @@ for i in range(len(moviesCorpus)):
         docTermMatrix[i,j] = t[1];
 
 
+#It can be seen from docTermmatrix that each movie belongs solely to only one topic, and very few percent of it belongs to other topics.
+
+
 docMostRelevantTopic = np.argmax(docTermMatrix, axis=1) #ith index stores the index of the most relevant topic in ith document.
 
 
@@ -222,7 +225,9 @@ col3 = dataextract['rating']
 for i in range(len(dataextract)):
     j = usersIndexMapping[col1[i]]
     k = moviesIndexMapping[col2[i]]
+    #As each movie solely belongs to only one topic, taking only contribution of that main topic as other topics will only lead to error.
     docMostRelevantTopicIndex = docMostRelevantTopic[k]
+    #Here we are not multiplying with rating as, in case of euclid similarity, multiplying by 5(rating) will take user point away from relevant topic(movie point) more that multiplying by 3(rating). So euclid distance will favour movie with rating 3 that movie with rating 5 as according to euclid similarity, less the distance more is similarity.
     if col3[i]>=3:
         userTermMatrix[j,docMostRelevantTopicIndex] += docTermMatrix[k,docMostRelevantTopicIndex]
     else:
@@ -262,6 +267,7 @@ for i in range(len(dataextract)):
     docMostRelevantTopicIndex = docMostRelevantTopic[k]
     #coeff, pval = pearsons_correlation(docvec, uservec) #Pearson's correlation similarity
     #coeff = np.linalg.norm(docvec-uservec) #Euclidean distance similarity
+    #As each movie solely belongs to only one topic, so comparing only that main topic with user matrix.
     coeff = abs(docvec[docMostRelevantTopicIndex]-uservec[docMostRelevantTopicIndex]) #Euclidean distance between only relevant topic.
     string = str(uid)+"\t"+str(mid)+"\t"+str(rval)+"\t"+str(coeff)+"\n"
     file.write(string)
@@ -287,6 +293,7 @@ def run():
         docMostRelevantTopicIndex = docMostRelevantTopic[i]
         #coeff, pval = pearsons_correlation(docvec, uservec) #Pearson's correlation similarity
         #coeff = np.linalg.norm(docvec-uservec) #Euclidean distance similarity
+        #As each movie solely belongs to only one topic, so comparing only that main topic with user matrix.
         coeff = abs(docvec[docMostRelevantTopicIndex]-uservec[docMostRelevantTopicIndex]) #Euclidean distance between only relevant topic.
         #print(str(moviesName[i])+" "+str(moviesId[i]))
         recFactor.append(tuple((i, coeff)))
