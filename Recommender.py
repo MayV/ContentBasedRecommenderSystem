@@ -121,14 +121,61 @@ dictionary.filter_extremes(no_below=5) #Alter according to dataset.
 bow_corpus = [dictionary.doc2bow(doc) for doc in moviesCorpus]
 
 
-#Get lda model. Train the model over bow_corpus.
-numTopics = 20
-lda_model = gensim.models.LdaMulticore(bow_corpus, num_topics=numTopics, id2word=dictionary, passes=3, workers=2)
-#For each topic, explore the words occuring in that topic and its relative weight in documents.
-for indx in range(numTopics):
-    print("Topic: "+str(indx))
-    print(lda_model.print_topics(indx))
-    print("\n")
+#Get max coherence score to get perfect lda model. Get min perplexity to get perfect lda model.
+maxCoherence = 0
+numTopics = 0
+minPerplexity = 0
+for t in range(2, 21):
+    lda_model = gensim.models.LdaMulticore(bow_corpus, num_topics=t, id2word=dictionary, passes=20, workers=3)
+    coherence_model_lda = gensim.models.CoherenceModel(model=lda_model, texts=moviesCorpus, dictionary=dictionary, coherence='c_v')
+    coherence_score = coherence_model_lda.get_coherence()
+    perplexity = lda_model.log_perplexity(bow_corpus)
+    if coherence_score > maxCoherence:
+        maxCoherence = coherence_score
+        numTopics = t
+        minPerplexity = perplexity
+    print('Topic: ',t,' Coherence Score: ',coherence_score,' Perplexity: ', perplexity)
+    
+
+#Train bow_corpus.
+lda_model = gensim.models.LdaMulticore(bow_corpus, num_topics=numTopics, id2word=dictionary, passes=20, workers=3)
+
+
+from pprint import pprint
+
+
+#For each topic, print top 10 significant terms.
+pprint(lda_model.print_topics())
+
+
+import pyLDAvis.gensim
+pyLDAvis.enable_notebook()
+LDAvis_prepared = pyLDAvis.gensim.prepare(lda_model, bow_corpus, dictionary)
+pyLDAvis.show(LDAvis_prepared)
+'''
+Wait, what am I looking at again? There are a lot of moving parts in the visualization. Here's a brief summary:
+
+On the left, there is a plot of the "distance" between all of the topics (labeled as the Intertopic Distance Map). The plot is rendered in two dimensions according a multidimensional scaling (MDS) algorithm.
+Topics that are generally similar should be appear close together on the plot, while dissimilar topics should appear far apart.
+
+The relative size of a topic's circle in the plot corresponds to the relative frequency of the topic in the corpus.
+An individual topic may be selected for closer scrutiny by clicking on its circle, or entering its number in the "selected topic" box in the upper-left.
+
+On the right, there is a bar chart showing top terms.
+When no topic is selected in the plot on the left, the bar chart shows the top most "salient" terms in the corpus.
+A term's saliency is a measure of both how frequent the term is in the corpus and how "distinctive" it is in distinguishing between different topics.
+When a particular topic is selected, the bar chart changes to show the top most "relevant" terms for the selected topic.
+
+The relevance metric is controlled by the parameter λλ, which can be adjusted with a slider above the bar chart.
+
+Setting the λλ parameter close to 1.0 (the default) will rank the terms solely according to their probability within the topic.
+Setting λλ close to 0.0 will rank the terms solely according to their "distinctiveness" or "exclusivity" within the topic — i.e., terms that occur only in this topic, and do not occur in other topics.
+Setting λλ to values between 0.0 and 1.0 will result in an intermediate ranking, weighting term probability and exclusivity accordingly.
+
+Rolling the mouse over a term in the bar chart on the right will cause the topic circles to resize in the plot on the left, to show the strength of the relationship between the topics and the selected term.
+
+Unfortunately, though the data used by gensim and pyLDAvis are the same, they don't use the same ID numbers for topics. If you need to match up topics in gensim's LdaMulticore object and pyLDAvis' visualization, you have to dig through the terms manually.
+'''
 
 
 import numpy as np
@@ -149,6 +196,9 @@ for i in range(len(moviesCorpus)):
         docTermMatrix[i,j] = t[1];
 
 
+docMostRelevantTopic = np.argmax(docTermMatrix, axis=1) #ith index stores the index of the most relevant topic in ith document.
+
+
 numUsers = 0 #To be returned.
 usersIndexMapping = {} #To be returned.
 
@@ -163,50 +213,90 @@ for i in range(len(dataextract)):
 
 
 userTermMatrix = np.zeros((numUsers, numTopics)) #To be returned.
-
-
-userRatingFreq = {}
+userRateFreq = np.zeros((numUsers, numTopics))
 
 
 #Load and get dataset.
 col2 = dataextract['movieId']
 col3 = dataextract['rating']
 for i in range(len(dataextract)):
-    if col3[i]<3:
-        continue
-    if col1[i] in userRatingFreq:
-        userRatingFreq[col1[i]] += 1
-    else:
-        userRatingFreq[col1[i]] = 1
     j = usersIndexMapping[col1[i]]
     k = moviesIndexMapping[col2[i]]
-    userTermMatrix[j] += (col3[i]-3)*docTermMatrix[k]
-for key, val in userRatingFreq.items():
-    j = usersIndexMapping[key]
-    userTermMatrix[j] /= val
+    docMostRelevantTopicIndex = docMostRelevantTopic[k]
+    if col3[i]>=3:
+        userTermMatrix[j,docMostRelevantTopicIndex] += docTermMatrix[k,docMostRelevantTopicIndex]
+    else:
+        userTermMatrix[j,docMostRelevantTopicIndex] -= docTermMatrix[k,docMostRelevantTopicIndex]
+    userRateFreq[j,docMostRelevantTopicIndex] += 1
+userRateFreq[userRateFreq == 0] = 1
+for i in range(numUsers):
+    userTermMatrix[i] /= userRateFreq[i]
+
+
+#View userTermMatrix and docTermMatrix
+file1 = open("test1.txt", "w")
+for i in range(numUsers):
+    file1.write(str(userTermMatrix[i]))
+    file1.write("\n")
+file1.close()
+file2 = open("test2.txt", "w")
+for i in range(numMovies):
+    file2.write(str(docTermMatrix[i]))
+    file2.write("\n")
+file2.close()
 
 
 from scipy.stats import pearsonr as pearsons_correlation
 
 
-def run():
-    #uid = int(input("Enter User Id: "))
-    for j in range(numUsers):
-        uid = j+1
-        if uid not in usersIndexMapping.keys():
-            continue;
-        i = usersIndexMapping[uid]
-        uservec = userTermMatrix[i]
-        print(uid)
-        print(uservec)
-        numRec = 0
-        for i in range(numMovies):
-            coeff, pval = pearsons_correlation(docTermMatrix[i], uservec)
-            if coeff>0.9:
-                print(str(moviesName[i])+" "+str(moviesId[i]))
-                numRec += 1
-        print(numRec)
+#Check and get accurracy. 
+file = open("test3.txt", "w")
+for i in range(len(dataextract)):
+    uid = col1[i]
+    mid = col2[i]
+    rval = col3[i]
+    j = usersIndexMapping[uid]
+    uservec = userTermMatrix[j]
+    k = moviesIndexMapping[mid]
+    docvec = docTermMatrix[k]
+    docMostRelevantTopicIndex = docMostRelevantTopic[k]
+    #coeff, pval = pearsons_correlation(docvec, uservec) #Pearson's correlation similarity
+    #coeff = np.linalg.norm(docvec-uservec) #Euclidean distance similarity
+    coeff = abs(docvec[docMostRelevantTopicIndex]-uservec[docMostRelevantTopicIndex]) #Euclidean distance between only relevant topic.
+    string = str(uid)+"\t"+str(mid)+"\t"+str(rval)+"\t"+str(coeff)+"\n"
+    file.write(string)
+file.close()
 
+
+import operator
+
+
+def compare(x):
+    return x[1]
+def run():
+    uid = int(input("Enter User Id: "))
+    if uid not in usersIndexMapping.keys():
+        print("User Id not in record.")
+        return
+    i = usersIndexMapping[uid]
+    uservec = userTermMatrix[i]
+    #print(uservec)
+    recFactor = []
+    for i in range(numMovies):
+        docvec = docTermMatrix[i]
+        docMostRelevantTopicIndex = docMostRelevantTopic[i]
+        #coeff, pval = pearsons_correlation(docvec, uservec) #Pearson's correlation similarity
+        #coeff = np.linalg.norm(docvec-uservec) #Euclidean distance similarity
+        coeff = abs(docvec[docMostRelevantTopicIndex]-uservec[docMostRelevantTopicIndex]) #Euclidean distance between only relevant topic.
+        #print(str(moviesName[i])+" "+str(moviesId[i]))
+        recFactor.append(tuple((i, coeff)))
+    recFactor = sorted(recFactor, key=operator.itemgetter(1), reverse=True)
+    numRec = 10
+    recommend = []
+    for j in range(numRec):
+        i = recFactor[j][0]
+        recommend.append(tuple((moviesName[i], moviesId[i])))
+    print(recommend)
 
 if __name__=="__main__":
     run()
